@@ -1,5 +1,6 @@
 import os
 import requests
+import numpy as np
 import pandas as pd
 import yfinance as yf
 from fredapi import Fred
@@ -10,20 +11,20 @@ from datetime import datetime, timedelta
 # =========================
 
 FRED_API_KEY = os.getenv("FRED_API_KEY")
-SCKEY = os.getenv("SCKEY")
+SCKEY  = os.getenv("SCKEY")
 
-ACWI_CODE = "ACWI"
-VIX_CODE = "^VIX"
+ACWI_CODE   = "ACWI"
+VIX_CODE    = "^VIX"
 HY_OAS_CODE = "BAMLH0A0HYM2"
 
-MA_DAYS = 200
+MA_DAYS          = 200
 TREND_CHECK_DAYS = 20
 
 HY_75 = 0.75
 HY_90 = 0.90
 
 VIX_LIMIT = 35
-VIX_RISE = 0.20
+VIX_RISE  = 0.20
 
 
 # =========================
@@ -57,14 +58,14 @@ try:
 
     acwi["ma200"] = acwi["Close"].rolling(MA_DAYS).mean()
 
-    # 获取最新数据，并确保是标量
-    latest_close = float(acwi["Close"].iloc[-1])
-    latest_ma = float(acwi["ma200"].iloc[-1])
+    # 安全提取为标量
+    latest_close = acwi["Close"].iloc[-1].item()
+    latest_ma    = acwi["ma200"].iloc[-1].item()
 
-    # 使用 numpy 数组比较，避免对齐问题
+    # 转为 numpy 数组避免对齐问题
     close_vals = acwi["Close"].values.ravel()
-    ma_vals = acwi["ma200"].values.ravel()
-    above_ma = close_vals > ma_vals
+    ma_vals    = acwi["ma200"].values.ravel()
+    above_ma   = close_vals > ma_vals
 
     trend_status = bool(above_ma[-1])
 
@@ -94,9 +95,9 @@ try:
         observation_start=end_date - timedelta(days=180)
     ).dropna()
 
-    hy_current = float(hy_data.iloc[-1])
-    hy_p75 = float(hy_data.quantile(HY_75))
-    hy_p90 = float(hy_data.quantile(HY_90))
+    hy_current = hy_data.iloc[-1].item()
+    hy_p75     = hy_data.quantile(HY_75).item()
+    hy_p90     = hy_data.quantile(HY_90).item()
 
     hy_percent = round(
         (hy_data < hy_current).mean() * 100,
@@ -120,15 +121,14 @@ try:
         progress=False
     )["Close"].dropna()
 
-    # 提取为标量
-    vix_current = float(vix.iloc[-1])
-    vix_prev = float(vix.iloc[-2])
+    vix_current = vix.iloc[-1].item()
+    vix_prev    = vix.iloc[-2].item()
 
     vix_change = round((vix_current - vix_prev) / vix_prev, 3)
 
 except Exception:
     vix_current = 0.0
-    vix_change = 0.0
+    vix_change  = 0.0
 
 
 # =========================
@@ -137,7 +137,6 @@ except Exception:
 
 defense_reasons = []
 
-# 修复后的核心逻辑
 if (not trend_status) and trend_days >= TREND_CHECK_DAYS:
     defense_reasons.append(
         f"ACWI连续跌破200日均线 {trend_days} 天"
@@ -161,18 +160,18 @@ if vix_current > VIX_LIMIT and vix_change >= VIX_RISE:
 today = datetime.today().strftime("%Y-%m-%d")
 
 if defense_reasons:
-    mode = "🔴 防守"
-    title = f"⚠️ 防守模式触发 | {today}"
+    mode     = "🔴 防守"
+    title    = f"⚠️ 防守模式触发 | {today}"
     position = "权益30% ｜ 债券50% ｜ 黄金20%"
 
 elif trend_status and trend_days >= TREND_CHECK_DAYS and hy_percent < 75:
-    mode = "🟢 进攻"
-    title = f"📈 进攻模式 | {today}"
+    mode     = "🟢 进攻"
+    title    = f"📈 进攻模式 | {today}"
     position = "权益70% ｜ 债券20% ｜ 黄金10%"
 
 else:
-    mode = "🟡 中性"
-    title = f"📊 中性模式 | {today}"
+    mode     = "🟡 中性"
+    title    = f"📊 中性模式 | {today}"
     position = "权益60% ｜ 债券30% ｜ 黄金10%"
 
 
