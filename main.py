@@ -60,7 +60,10 @@ try:
     latest_close = round(acwi["Close"].iloc[-1], 2)
     latest_ma = round(acwi["ma200"].iloc[-1], 2)
 
-    acwi["above_ma"] = acwi["Close"] > acwi["ma200"]
+    # 修复对齐问题：直接比较数值数组
+    close_vals = acwi["Close"].values
+    ma_vals = acwi["ma200"].values
+    acwi["above_ma"] = close_vals > ma_vals
 
     trend_status = bool(acwi["above_ma"].iloc[-1])
 
