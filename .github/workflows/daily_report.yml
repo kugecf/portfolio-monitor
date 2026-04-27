@@ -2,7 +2,7 @@ name: 投资组合状态监控
 # 北京时间 22:30 自动运行（美股收盘后，数据最新）
 on:
   schedule:
-    - cron: '30 14 * * *'
+    - cron: '30 14 * * 1-5'
   workflow_dispatch:
 
 jobs:
