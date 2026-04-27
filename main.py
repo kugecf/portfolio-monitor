@@ -60,15 +60,15 @@ try:
     latest_close = round(acwi["Close"].iloc[-1], 2)
     latest_ma = round(acwi["ma200"].iloc[-1], 2)
 
-    # 修复对齐问题：直接比较数值数组
-    close_vals = acwi["Close"].values
-    ma_vals = acwi["ma200"].values
-    acwi["above_ma"] = close_vals > ma_vals
+    # 修复对齐问题：确保数组都是一维
+    close_vals = acwi["Close"].values.ravel()
+    ma_vals = acwi["ma200"].values.ravel()
+    above_ma = close_vals > ma_vals
 
-    trend_status = bool(acwi["above_ma"].iloc[-1])
+    trend_status = bool(above_ma[-1])
 
     trend_days = 0
-    for val in reversed(acwi["above_ma"].tolist()):
+    for val in reversed(above_ma):
         if val == trend_status:
             trend_days += 1
         else:
