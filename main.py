@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta
 # =========================
 
 FRED_API_KEY = os.getenv("FRED_API_KEY")
-SCKEY  = os.getenv("SCKEY")
+SCKEY        = os.getenv("SCKEY")
 
 ACWI_CODE   = "ACWI"
 VIX_CODE    = "^VIX"
@@ -25,6 +26,28 @@ HY_90 = 0.90
 
 VIX_LIMIT = 35
 VIX_RISE  = 0.20
+
+
+# =========================
+# 交易日检测（跳过周末和美股节假日）
+# =========================
+
+def is_market_closed_today():
+    """
+    判断今天是否是美股交易日。
+    方法：获取 ACWI 最近 1 天的收盘价，如果最近一个交易日的日期不等于今天，
+    则说明今天是非交易日（周末或假日），应当跳过推送。
+    """
+    try:
+        test = yf.download(ACWI_CODE, period="1d", auto_adjust=True, progress=False)
+        if test.empty:
+            return True  # 无数据，视为休市
+        last_trade_date = test.index[-1].date()  # 最近一个交易日的日期
+        today = datetime.today().date()
+        return last_trade_date != today
+    except Exception:
+        # 异常时保守起见，不发推送
+        return True
 
 
 # =========================
@@ -44,142 +67,141 @@ def send_wechat(title, content):
         print(f"❌ 微信推送失败：{e}")
 
 
-# =========================
-# 1. ACWI 趋势判断
-# =========================
+# ======================
+# 主程序入口
+# ======================
 
-try:
-    acwi = yf.download(
-        ACWI_CODE,
-        period="1y",
-        auto_adjust=True,
-        progress=False
-    )
+if __name__ == "__main__":
+    # 第一步：交易日检查，非交易日直接退出，不消耗推送额度
+    if is_market_closed_today():
+        print("ℹ️ 今日非美股交易日，跳过推送")
+        sys.exit(0)
 
-    acwi["ma200"] = acwi["Close"].rolling(MA_DAYS).mean()
+    # ---------- 以下逻辑只在交易日执行 ----------
 
-    # 安全提取为标量
-    latest_close = acwi["Close"].iloc[-1].item()
-    latest_ma    = acwi["ma200"].iloc[-1].item()
+    # =========================
+    # 1. ACWI 趋势判断
+    # =========================
+    try:
+        acwi = yf.download(
+            ACWI_CODE,
+            period="1y",
+            auto_adjust=True,
+            progress=False
+        )
 
-    # 转为 numpy 数组避免对齐问题
-    close_vals = acwi["Close"].values.ravel()
-    ma_vals    = acwi["ma200"].values.ravel()
-    above_ma   = close_vals > ma_vals
+        acwi["ma200"] = acwi["Close"].rolling(MA_DAYS).mean()
 
-    trend_status = bool(above_ma[-1])
+        latest_close = acwi["Close"].iloc[-1].item()
+        latest_ma    = acwi["ma200"].iloc[-1].item()
 
-    trend_days = 0
-    for val in reversed(above_ma):
-        if val == trend_status:
-            trend_days += 1
-        else:
-            break
+        close_vals = acwi["Close"].values.ravel()
+        ma_vals    = acwi["ma200"].values.ravel()
+        above_ma   = close_vals > ma_vals
 
-except Exception as e:
-    send_wechat("❌ 数据失败", f"ACWI 获取异常：{e}")
-    raise
+        trend_status = bool(above_ma[-1])
 
+        trend_days = 0
+        for val in reversed(above_ma):
+            if val == trend_status:
+                trend_days += 1
+            else:
+                break
 
-# =========================
-# 2. 信用利差
-# =========================
+    except Exception as e:
+        send_wechat("❌ 数据失败", f"ACWI 获取异常：{e}")
+        sys.exit(1)
 
-try:
-    fred = Fred(api_key=FRED_API_KEY)
+    # =========================
+    # 2. 信用利差
+    # =========================
+    try:
+        fred = Fred(api_key=FRED_API_KEY)
 
-    end_date = datetime.today()
+        end_date = datetime.today()
 
-    hy_data = fred.get_series(
-        HY_OAS_CODE,
-        observation_start=end_date - timedelta(days=180)
-    ).dropna()
+        hy_data = fred.get_series(
+            HY_OAS_CODE,
+            observation_start=end_date - timedelta(days=180)
+        ).dropna()
 
-    hy_current = hy_data.iloc[-1].item()
-    hy_p75     = hy_data.quantile(HY_75).item()
-    hy_p90     = hy_data.quantile(HY_90).item()
+        hy_current = hy_data.iloc[-1].item()
+        hy_p75     = hy_data.quantile(HY_75).item()
+        hy_p90     = hy_data.quantile(HY_90).item()
 
-    hy_percent = round(
-        (hy_data < hy_current).mean() * 100,
-        1
-    )
+        hy_percent = round(
+            (hy_data < hy_current).mean() * 100,
+            1
+        )
 
-except Exception as e:
-    send_wechat("❌ 数据失败", f"FRED 获取异常：{e}")
-    raise
+    except Exception as e:
+        send_wechat("❌ 数据失败", f"FRED 获取异常：{e}")
+        sys.exit(1)
 
+    # =========================
+    # 3. VIX 恐慌指数
+    # =========================
+    try:
+        vix = yf.download(
+            VIX_CODE,
+            period="10d",
+            auto_adjust=True,
+            progress=False
+        )["Close"].dropna()
 
-# =========================
-# 3. VIX 恐慌指数
-# =========================
+        vix_current = vix.iloc[-1].item()
+        vix_prev    = vix.iloc[-2].item()
 
-try:
-    vix = yf.download(
-        VIX_CODE,
-        period="10d",
-        auto_adjust=True,
-        progress=False
-    )["Close"].dropna()
+        vix_change = round((vix_current - vix_prev) / vix_prev, 3)
 
-    vix_current = vix.iloc[-1].item()
-    vix_prev    = vix.iloc[-2].item()
+    except Exception:
+        vix_current = 0.0
+        vix_change  = 0.0
 
-    vix_change = round((vix_current - vix_prev) / vix_prev, 3)
+    # =========================
+    # 4. 状态机判断
+    # =========================
+    defense_reasons = []
 
-except Exception:
-    vix_current = 0.0
-    vix_change  = 0.0
+    if (not trend_status) and trend_days >= TREND_CHECK_DAYS:
+        defense_reasons.append(
+            f"ACWI连续跌破200日均线 {trend_days} 天"
+        )
 
+    if hy_percent > 90:
+        defense_reasons.append(
+            f"信用利差分位 {hy_percent}%（超90%）"
+        )
 
-# =========================
-# 4. 状态机判断
-# =========================
+    if vix_current > VIX_LIMIT and vix_change >= VIX_RISE:
+        defense_reasons.append(
+            f"VIX={vix_current}，单日上涨 {vix_change*100:.0f}%"
+        )
 
-defense_reasons = []
+    # =========================
+    # 5. 仓位模式
+    # =========================
+    today = datetime.today().strftime("%Y-%m-%d")
 
-if (not trend_status) and trend_days >= TREND_CHECK_DAYS:
-    defense_reasons.append(
-        f"ACWI连续跌破200日均线 {trend_days} 天"
-    )
+    if defense_reasons:
+        mode     = "🔴 防守"
+        title    = f"⚠️ 防守模式触发 | {today}"
+        position = "权益30% ｜ 债券50% ｜ 黄金20%"
 
-if hy_percent > 90:
-    defense_reasons.append(
-        f"信用利差分位 {hy_percent}%（超90%）"
-    )
+    elif trend_status and trend_days >= TREND_CHECK_DAYS and hy_percent < 75:
+        mode     = "🟢 进攻"
+        title    = f"📈 进攻模式 | {today}"
+        position = "权益70% ｜ 债券20% ｜ 黄金10%"
 
-if vix_current > VIX_LIMIT and vix_change >= VIX_RISE:
-    defense_reasons.append(
-        f"VIX={vix_current}，单日上涨 {vix_change*100:.0f}%"
-    )
+    else:
+        mode     = "🟡 中性"
+        title    = f"📊 中性模式 | {today}"
+        position = "权益60% ｜ 债券30% ｜ 黄金10%"
 
-
-# =========================
-# 5. 仓位模式
-# =========================
-
-today = datetime.today().strftime("%Y-%m-%d")
-
-if defense_reasons:
-    mode     = "🔴 防守"
-    title    = f"⚠️ 防守模式触发 | {today}"
-    position = "权益30% ｜ 债券50% ｜ 黄金20%"
-
-elif trend_status and trend_days >= TREND_CHECK_DAYS and hy_percent < 75:
-    mode     = "🟢 进攻"
-    title    = f"📈 进攻模式 | {today}"
-    position = "权益70% ｜ 债券20% ｜ 黄金10%"
-
-else:
-    mode     = "🟡 中性"
-    title    = f"📊 中性模式 | {today}"
-    position = "权益60% ｜ 债券30% ｜ 黄金10%"
-
-
-# =========================
-# 6. 推送内容
-# =========================
-
-content = f"""
+    # =========================
+    # 6. 推送内容
+    # =========================
+    content = f"""
 **{mode}**
 
 日期：{today}
@@ -213,11 +235,10 @@ VIX：
 {position}
 """
 
-if defense_reasons:
-    content += "\n\n⚠️ 防守触发原因：\n"
-    for x in defense_reasons:
-        content += f"\n• {x}"
+    if defense_reasons:
+        content += "\n\n⚠️ 防守触发原因：\n"
+        for x in defense_reasons:
+            content += f"\n• {x}"
 
-send_wechat(title, content)
-
-print(f"✅ 当前状态：{mode}")
+    send_wechat(title, content)
+    print(f"✅ 当前状态：{mode}")
