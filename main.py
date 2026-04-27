@@ -57,10 +57,11 @@ try:
 
     acwi["ma200"] = acwi["Close"].rolling(MA_DAYS).mean()
 
-    latest_close = round(acwi["Close"].iloc[-1], 2)
-    latest_ma = round(acwi["ma200"].iloc[-1], 2)
+    # 获取最新数据，并确保是标量
+    latest_close = float(acwi["Close"].iloc[-1])
+    latest_ma = float(acwi["ma200"].iloc[-1])
 
-    # 修复对齐问题：确保数组都是一维
+    # 使用 numpy 数组比较，避免对齐问题
     close_vals = acwi["Close"].values.ravel()
     ma_vals = acwi["ma200"].values.ravel()
     above_ma = close_vals > ma_vals
@@ -93,9 +94,9 @@ try:
         observation_start=end_date - timedelta(days=180)
     ).dropna()
 
-    hy_current = round(hy_data.iloc[-1], 2)
-    hy_p75 = round(hy_data.quantile(HY_75), 2)
-    hy_p90 = round(hy_data.quantile(HY_90), 2)
+    hy_current = float(hy_data.iloc[-1])
+    hy_p75 = float(hy_data.quantile(HY_75))
+    hy_p90 = float(hy_data.quantile(HY_90))
 
     hy_percent = round(
         (hy_data < hy_current).mean() * 100,
@@ -119,16 +120,15 @@ try:
         progress=False
     )["Close"].dropna()
 
-    vix_current = round(vix.iloc[-1], 2)
+    # 提取为标量
+    vix_current = float(vix.iloc[-1])
+    vix_prev = float(vix.iloc[-2])
 
-    vix_change = round(
-        (vix.iloc[-1] - vix.iloc[-2]) / vix.iloc[-2],
-        3
-    )
+    vix_change = round((vix_current - vix_prev) / vix_prev, 3)
 
 except Exception:
-    vix_current = 0
-    vix_change = 0
+    vix_current = 0.0
+    vix_change = 0.0
 
 
 # =========================
