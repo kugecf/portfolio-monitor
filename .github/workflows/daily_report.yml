@@ -1,0 +1,21 @@
+name: 投资组合状态监控
+# 北京时间 22:30 自动运行（美股收盘后，数据最新）
+on:
+  schedule:
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --upgrade pip yfinance fredapi pandas requests
+      - name: 运行监控脚本
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SCKEY: ${{ secrets.SCKEY }}
+        run: python3 main.py
