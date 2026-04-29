@@ -113,8 +113,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # =========================
-    # 2. 信用利差
+    # 2. 信用利差（增加最后更新日期）
     # =========================
+    hy_last_date = None
+    hy_data_lag = None
     try:
         fred = Fred(api_key=FRED_API_KEY)
 
@@ -126,6 +128,9 @@ if __name__ == "__main__":
         ).dropna()
 
         hy_current = hy_data.iloc[-1].item()
+        hy_last_date = hy_data.index[-1].date()       # 数据最新日期
+        hy_data_lag = (datetime.today().date() - hy_last_date).days
+
         hy_p75     = hy_data.quantile(HY_75).item()
         hy_p90     = hy_data.quantile(HY_90).item()
 
@@ -139,8 +144,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # =========================
-    # 3. VIX 恐慌指数
+    # 3. VIX 恐慌指数（加强健壮性）
     # =========================
+    vix_current = None
+    vix_change  = None
+    vix_date_str = ""
     try:
         vix = yf.download(
             VIX_CODE,
@@ -149,14 +157,19 @@ if __name__ == "__main__":
             progress=False
         )["Close"].dropna()
 
-        vix_current = vix.iloc[-1].item()
-        vix_prev    = vix.iloc[-2].item()
-
-        vix_change = round((vix_current - vix_prev) / vix_prev, 3)
-
-    except Exception:
-        vix_current = 0.0
-        vix_change  = 0.0
+        if len(vix) < 2:
+            print("⚠️ VIX数据不足2个交易日，跳过计算")
+        else:
+            vix_current = vix.iloc[-1].item()
+            vix_prev    = vix.iloc[-2].item()
+            vix_date    = vix.index[-1].date()
+            vix_date_str = vix_date.strftime("%Y-%m-%d")
+            if vix_prev != 0:
+                vix_change = round((vix_current - vix_prev) / vix_prev, 3)
+            else:
+                vix_change = None
+    except Exception as e:
+        print(f"⚠️ VIX 获取异常：{e}")
 
     # =========================
     # 4. 状态机判断
@@ -173,9 +186,10 @@ if __name__ == "__main__":
             f"信用利差分位 {hy_percent}%（超90%）"
         )
 
-    if vix_current > VIX_LIMIT and vix_change >= VIX_RISE:
+    if (vix_current is not None and vix_change is not None
+            and vix_current > VIX_LIMIT and vix_change >= VIX_RISE):
         defense_reasons.append(
-            f"VIX={vix_current}，单日上涨 {vix_change*100:.0f}%"
+            f"VIX={vix_current:.2f}，单日上涨 {vix_change*100:.0f}%"
         )
 
     # =========================
@@ -199,8 +213,17 @@ if __name__ == "__main__":
         position = "权益60% ｜ 债券30% ｜ 黄金10%"
 
     # =========================
-    # 6. 推送内容
+    # 6. 推送内容（增加数据源链接）
     # =========================
+    # 格式化VIX显示
+    vix_display = f"{vix_current:.2f}" if vix_current is not None else "获取失败"
+    vix_change_display = f"{vix_change*100:.1f}%" if vix_change is not None else "获取失败"
+    vix_date_line = f"（日期: {vix_date_str}）" if vix_date_str else ""
+
+    hy_lag_info = ""
+    if hy_last_date is not None:
+        hy_lag_info = f"数据更新至 {hy_last_date}（滞后 {hy_data_lag} 天）"
+
     content = f"""
 **{mode}**
 
@@ -210,23 +233,24 @@ if __name__ == "__main__":
 📊 核心信号
 ━━━━━━━━━━
 
-ACWI：{latest_close}
-200日均线：{latest_ma}
+ACWI：{latest_close:.2f}
+200日均线：{latest_ma:.2f}
 
 状态：
 {'站上' if trend_status else '跌破'} {trend_days} 天
 
 HY OAS：
-当前 {hy_current}%
+当前 {hy_current:.2f}%
+{hy_lag_info}
 
 历史分位：
 {hy_percent}%
 
 VIX：
-{vix_current}
+{vix_display} {vix_date_line}
 
 单日变化：
-{vix_change*100:.1f}%
+{vix_change_display}
 
 ━━━━━━━━━━
 💼 当前目标仓位
@@ -239,6 +263,18 @@ VIX：
         content += "\n\n⚠️ 防守触发原因：\n"
         for x in defense_reasons:
             content += f"\n• {x}"
+
+    # 数据源引用（方便人工核实）
+    content += """
+
+━━━━━━━━━━
+📎 数据源（点击核实）
+━━━━━━━━━━
+
+• ACWI：https://finance.yahoo.com/quote/ACWI/
+• VIX：https://finance.yahoo.com/quote/%5EVIX/
+• HY OAS（FRED）：https://fred.stlouisfed.org/series/BAMLH0A0HYM2
+"""
 
     send_wechat(title, content)
     print(f"✅ 当前状态：{mode}")
