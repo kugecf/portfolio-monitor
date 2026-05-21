@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 SCKEY        = os.getenv("SCKEY")
 
-ACWI_CODE   = "ACWI"
+SPY_CODE   = "SPY"
 VIX_CODE    = "^VIX"
 HY_OAS_CODE = "BAMLH0A0HYM2"
 
@@ -35,11 +35,11 @@ VIX_RISE  = 0.20
 def is_market_closed_today():
     """
     判断今天是否是美股交易日。
-    方法：获取 ACWI 最近 1 天的收盘价，如果最近一个交易日的日期不等于今天，
+    方法：获取 SPY 最近 1 天的收盘价，如果最近一个交易日的日期不等于今天，
     则说明今天是非交易日（周末或假日），应当跳过推送。
     """
     try:
-        test = yf.download(ACWI_CODE, period="1d", auto_adjust=True, progress=False)
+        test = yf.download(SPY_CODE, period="1d", auto_adjust=True, progress=False)
         if test.empty:
             return True  # 无数据，视为休市
         last_trade_date = test.index[-1].date()  # 最近一个交易日的日期
@@ -80,23 +80,23 @@ if __name__ == "__main__":
     # ---------- 以下逻辑只在交易日执行 ----------
 
     # =========================
-    # 1. ACWI 趋势判断
+    # 1. SPY 趋势判断
     # =========================
     try:
-        acwi = yf.download(
-            ACWI_CODE,
+        SPY = yf.download(
+            SPY_CODE,
             period="1y",
             auto_adjust=True,
             progress=False
         )
 
-        acwi["ma200"] = acwi["Close"].rolling(MA_DAYS).mean()
+        SPY["ma200"] = SPY["Close"].rolling(MA_DAYS).mean()
 
-        latest_close = acwi["Close"].iloc[-1].item()
-        latest_ma    = acwi["ma200"].iloc[-1].item()
+        latest_close = SPY["Close"].iloc[-1].item()
+        latest_ma    = SPY["ma200"].iloc[-1].item()
 
-        close_vals = acwi["Close"].values.ravel()
-        ma_vals    = acwi["ma200"].values.ravel()
+        close_vals = SPY["Close"].values.ravel()
+        ma_vals    = SPY["ma200"].values.ravel()
         above_ma   = close_vals > ma_vals
 
         trend_status = bool(above_ma[-1])
@@ -109,7 +109,7 @@ if __name__ == "__main__":
                 break
 
     except Exception as e:
-        send_wechat("❌ 数据失败", f"ACWI 获取异常：{e}")
+        send_wechat("❌ 数据失败", f"SPY 获取异常：{e}")
         sys.exit(1)
 
     # =========================
@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
     if (not trend_status) and trend_days >= TREND_CHECK_DAYS:
         defense_reasons.append(
-            f"ACWI连续跌破200日均线 {trend_days} 天"
+            f"SPY连续跌破200日均线 {trend_days} 天"
         )
 
     if hy_percent > 90:
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 📊 核心信号
 ━━━━━━━━━━
 
-ACWI：{latest_close:.2f}
+SPY：{latest_close:.2f}
 200日均线：{latest_ma:.2f}
 
 状态：
@@ -271,10 +271,11 @@ VIX：
 📎 数据源（点击核实）
 ━━━━━━━━━━
 
-• ACWI：https://finance.yahoo.com/quote/ACWI/
+• SPY：https://finance.yahoo.com/quote/SPY/
 • VIX：https://finance.yahoo.com/quote/%5EVIX/
 • HY OAS（FRED）：https://fred.stlouisfed.org/series/BAMLH0A0HYM2
 """
 
     send_wechat(title, content)
     print(f"✅ 当前状态：{mode}")
+
